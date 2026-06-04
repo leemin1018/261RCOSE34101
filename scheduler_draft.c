@@ -34,19 +34,17 @@ typedef struct {
 } GanttRecord; //일단 AI 써써 임시로 만듬 나중애ㅔ 수정하
 
 //일단 ai로 간트 출력함수 아래 깃코드 바탕으로 만들어봄, 나중에 수정하기 
-void print_gantt_chart(GanttRecord records[], int count) {
+void print_gantt_chart(GanttRecord records[], int count, algo_name) {
+    printf("\n==================================\n", algo_name);
     int i, j;
 
-    printf("\n=== Gantt Chart ===\n");
-
     // 1. Top Bar 그리기
-    printf(" ");
-    for(i = 0; i < count; i++) {
+    printf("  ");  // 시작 여백
+    for(i = 0; i < count; i++){
         int duration = records[i].end_time - records[i].start_time;
-        for(j = 0; j < duration; j++) printf("--");
+        for(j = 0; j < duration; j++) printf("---");
         printf(" ");
     }
-    printf("\n|");
 
     // 2. Middle (Process ID) 그리기
     for(i = 0; i < count; i++) {
@@ -73,14 +71,11 @@ void print_gantt_chart(GanttRecord records[], int count) {
     printf("\n");
 
     // 4. Timeline 그리기
-    printf("%d", records[0].start_time); // 시작 시간
+    printf("%3d", records[0].start_time);
     for(i = 0; i < count; i++) {
         int duration = records[i].end_time - records[i].start_time;
-        for(j = 0; j < duration; j++) printf("  ");
-        
-        // 자릿수에 따른 백스페이스 조절 (칸 맞추기)
-        if(records[i].end_time > 9) printf("\b"); 
-        printf("%d", records[i].end_time);
+        for(j = 0; j < duration; j++) printf("   ");  // 3칸씩
+        printf("%3d", records[i].end_time);
     }
     printf("\n");
 }
@@ -384,7 +379,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
     }
     
     // 방금 전에 작성한 출력 함수 호출 (count는 인덱스 0부터 시작했으니 +1)
-    print_gantt_chart(records, record_cnt + 1);
+    print_gantt_chart(records, record_cnt + 1, "not RR");
     // ---------------------------------------------------- AI러 ㅇ;ㄹ단
 }
 // FCFS+시간퀀텀
@@ -488,7 +483,7 @@ void RRsort(Process processarray[], int processnum, int time_quantum){
         records[record_cnt].end_time = currentime;
     }
     
-    print_gantt_chart(records, record_cnt + 1);
+    print_gantt_chart(records, record_cnt + 1, "RR");
     // ----------------------------------------------------
 }
 int printgantt(){

@@ -28,13 +28,13 @@ typedef enum {
     ALGO_RR
 } Algorithm;
 typedef struct {
-    int pid;        // 실행된 프로세스 ID (CPU가 쉬었으면 -1 또는 0)
-    int start_time; // 실행 시작 시간
-    int end_time;   // 실행 종료 시간
-} GanttRecord; //일단 AI 써써 임시로 만듬 나중애ㅔ 수정하
+    int pid;// 실행된 프로세스 ID (CPU가 쉬었으면 -1 또는 0)
+    int start_time;// 실행 시작 시간
+    int end_time;// 실행 종료 시간
+} GanttRecord; //간트 차트 추적용 일단
 
 //일단 ai로 간트 출력함수 아래 깃코드 바탕으로 만들어봄, 나중에 수정하기 
-void print_gantt_chart(GanttRecord records[], int count, algo_name) {
+void print_gantt_chart(GanttRecord records[], int count, char *algo_name) {
     printf("\n==================================\n", algo_name);
     int i, j;
 
@@ -80,84 +80,73 @@ void print_gantt_chart(GanttRecord records[], int count, algo_name) {
     printf("\n");
 }
 typedef struct {
-    // 1. 기본 식별 정보 (명세서 필수 요건)
-    int pid;                // 프로세스 ID (예: 1, 2, 3...)
-    int arrival_time;       // 도착 시간 (Ready Queue에 들어온 시간)
-    
-    // 2. 작업량 정보 (명세서 필수 요건)
-    int cpu_burst_time;     // 총 필요한 CPU 실행 시간
-    int io_burst_time;      // I/O 작업에 필요한 시간 (Random 또는 고정)
-    int priority;           // 우선순위 (Priority 스케줄링 알고리즘용)
-
-    // 3. 시뮬레이션 상태 추적을 위한 변수 (선점형 구현 시 매우 중요!)
-    int remaining_time;     // 남은 CPU 실행 시간 (초기값 = cpu_burst_tim
-    // 4. 결과 분석용 변수 (Average waiting/turnaround time 계산용)
-    int completion_time;    // 작업이 완전히 끝난 시간
-    int waiting_time;       // 총 대기 시간
-    int turnaround_time;    // 반환 시간 (완료 시간 - 도착 시간)
-    int srandom;            // 랜덤값 (동점 처리용)
-    int cpu_used;          // CPU 사용 시간 (I/O 요청 시점 체크용)
+    int pid;//프로세스 id
+    int arrival_time;//도착시간(ready queue)
+    int cpu_burst_time;//실행 시간
+    int io_burst_time;//IO랜덤 시간
+    int priority;//priority기반용 
+    int remaining_time;//남은 bursttime
+    int completion_time;//작업 종료시간 기록용
+    int waiting_time;//기다린 시간
+    int turnaround_time;//반환 시간 (완료 시간 - 도착 시간)
+    int cpu_used;// CPU 사용 시간 (I/O 요청 시점 체크용)
     int io_request_time;    // CPU 사용 중 I/O 요청 시점 (랜덤으로 설정)
-    int io_done_time;       // I/O 작업이 완료된 시간 (I
+    int io_done_time;// I/O 작업이 완료된 시간 (I
 } Process;
 typedef struct {
     Process *data[SIZE];
-    int currenop; //큐의 프로세스 수
+    int currenop; //큐에 지금 있는 프로세스수
 } Queue;
-// 1. 큐 초기화
+// 큐 초기화
 void init_queue(Queue *q) {
     q->currenop = 0;
 }
 
-// 2. 비어있는지
+// 비어있는지
 int is_empty(Queue *q) {
     return q->currenop == 0;
+    //1/0 리턴 C에 bool없어사
 }
 
-// 3. 가득 찼는지
+// 가득 찼는지
 int is_full(Queue *q) {
     return q->currenop == SIZE;
+    //다참 1 아님 0
 }
 
-// 4. 뒤에 추가
+// 뒤에 추가
 void enqueue(Queue *q, Process *p) {
-    if (is_full(q)) {
+    if (is_full(q)) {//큐가 가득차면 추가 못하고 근대ㅔ 이게 일어나나
         printf("que full\n");
         return;
     }
-    q->data[q->currenop] = p;
-    q->currenop++;
+    q->data[q->currenop] = p;///0부터니까 현재 개수= 지금 다음위치에저장
+    q->currenop++;//데이터 개수 업데이트
 }
-// 5. 앞에서 빼기 (FCFS, RR용)
+// 앞에서 빼기 (FCFS, RR용)
 Process* dequeue(Queue *q) {
-    if (is_empty(q)) return NULL;
-    
-    Process *p = q->data[0];  // 맨 앞 저장
-    
-    // 나머지를 한 칸씩 앞으로 당기기
+    if (is_empty(q)) return NULL;//빈큐에서 못뻄
+    Process *p = q->data[0];//임시저장하기 안날려먹게
+    // 나머지를 한 칸씩 앞으로 당기기 데이터 하나빠졌으니까 
     for (int i = 0; i < q->currenop - 1; i++) {
         q->data[i] = q->data[i + 1];
     }
-    
+    //그리고 개수 하나 줄이고 
     q->currenop--;
     return p;
 }
-// 6. 중간에서 빼기 (SJF, Priority의 핵심)
+// 중간에서 빼기 (SJF, Priority용)
 Process* remove_at(Queue *q, int idx) {
-    if (idx < 0 || idx >= q->currenop) return NULL;
-    
-    Process *p = q->data[idx];  // 해당 위치 저장
-    
-    // idx 다음 것들을 한 칸씩 앞으로 당기기
+    if (idx < 0 || idx >= q->currenop) return NULL;//인덱스 검사하고( 음수 이런거)
+    Process *p = q->data[idx]; // 해당 위치 저장 위랑 같음 근데 이건 중강에서 빼니까
+    //위랑 같은데 이건 빼는거 앞은 굳이 ㄴ
     for (int i = idx; i < q->currenop - 1; i++) {
         q->data[i] = q->data[i + 1];
     }
-    
     q->currenop--;
     return p;
-}
-
-// 7. 현재 개수
+}  
+// 현재 개수6;.;
 int size(Queue *q) {
     return q->currenop;
 }
@@ -165,13 +154,14 @@ Process* sjf_remove(Queue *q) {
     if (is_empty(q)) return NULL;
     //큐 빈
     int min_idx = 0;
-    for (int i = 1; i < q->currenop; i++) {
-        if (q->data[i]->remaining_time < q->data[min_idx]->remaining_time) {
-            min_idx = i;
+    for (int i = 1; i < q->currenop; i++) { // 동점-앞에 있는 큐가 나옴
+        if (q->data[i]->remaining_time < q->data[min_idx]->remaining_time) {//더 작으면 먼저 나오게 함
+            min_idx = i; //교체하고
         }
     }
-    return remove_at(q, min_idx);
+    return remove_at(q, min_idx); //그 위치에서 빼기
 }
+//check어쩌고는 다 비슷한데 제거 안하고 그냥 다시 가져다둠, 선점형용에서 쓰게
 Process* check_sjf(Queue *q) {
     if (is_empty(q)) return NULL;
     //큐 빈
@@ -183,7 +173,7 @@ Process* check_sjf(Queue *q) {
     }
     return q->data[min_idx];
 }
-
+//SJF랑 같은데 이제 비교대상이 우선순위로
 Process* priority_remove(Queue *q) {
     if (is_empty(q)) return NULL;
     //큐 빈
@@ -195,7 +185,7 @@ Process* priority_remove(Queue *q) {
     }
     return remove_at(q, min_idx);
 }
-
+//똑같은 걍 선점형용 보기
 Process* check_priority(Queue *q) {
     if (is_empty(q)) return NULL;
     //큐 빈

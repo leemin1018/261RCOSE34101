@@ -25,7 +25,9 @@ typedef enum {
     ALGO_SJF_PREEMPTIVE,
     ALGO_PRIORITY,
     ALGO_PRIORITY_PREEMPTIVE,
-    ALGO_RR
+    ALGO_RR,
+    ALGO_EDF,
+    ALGO_RMS
 } Algorithm;
 typedef struct {
     int pid;// 실행된 프로세스 ID (CPU가 쉬었으면 -1 또는 0)
@@ -92,6 +94,9 @@ typedef struct {
     int cpu_used;// CPU 사용 시간 (I/O 요청 시점 체크용)
     int io_request_time;    // CPU 사용 중 I/O 요청 시점 (랜덤으로 설정)
     int io_done_time;// I/O 작업이 완료된 시간 (I
+    /////EDF RMS
+    int deadline;// EDF용 마감 시간
+    int period;// RMS용 주기
 } Process;
 typedef struct {
     Process *data[SIZE];
@@ -197,6 +202,28 @@ Process* check_priority(Queue *q) {
     }
     return q->data[min_idx];
 }
+////////EDF RMS
+Process* check_edf(Queue *q) {
+    if (is_empty(q)) return NULL;
+    int min_idx = 0;
+    for (int i = 1; i < q->currenop; i++) {
+        if (q->data[i]->deadline < q->data[min_idx]->deadline) {
+            min_idx = i;
+        }
+    }
+    return q->data[min_idx];
+}
+
+Process* edf_remove(Queue *q) {
+    if (is_empty(q)) return NULL;
+    int min_idx = 0;
+    for (int i = 1; i < q->currenop; i++) {
+        if (q->data[i]->deadline < q->data[min_idx]->deadline) {
+            min_idx = i;
+        }
+    }
+    return remove_at(q, min_idx);
+}
 //input empty pointer or array and int num_processes
 void create_process(Process processarray[], int processnum){
     for (int i=0; i<processnum; i++){
@@ -209,11 +236,13 @@ void create_process(Process processarray[], int processnum){
         processarray[i].completion_time = 0;
         processarray[i].waiting_time = 0;
         processarray[i].turnaround_time = 0;
-        processarray[i].srandom = rand() % 1000;//랜덤값ㅔ
+        //processarray[i].srandom = rand() % 1000;//랜덤값ㅔ
         processarray[i].cpu_used = 0;
         processarray[i].io_request_time = (rand() % processarray[i].cpu_burst_time) + 1; // CPU 사용 중 랜덤한 시점에 I/O 요청
         processarray[i].io_done_time = 0; // I/O 완료 시간 초기화
-
+        //EDF RMS용인데 일단 넣어보고
+        processarray[i].period = (rand() % 15) + 10;
+        processarray[i].deadline = processarray[i].arrival_time + processarray[i].period;
     }
 }
 
@@ -253,7 +282,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
     GanttRecord records[1000]; // 조각이 많아질 수 있으니 넉넉하게 잡습니다.
     int record_cnt = 0;
     int prev_pid = -2;         // 이전 틱에서 실행된 프로세스 ID (-2는 초기 상태)
-    // ---------------------------------------------------- AI러 ㅇ;ㄹ단
+    // ---------------------------------------------------- AI추가
     while (completedprocessprocess < processnum) {
         //프로세스 도착하면 준비큐로
         for (int i = 0; i < processnum; i++) {
@@ -314,6 +343,19 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
                    }
                 }
                 break;
+                //ㅁㅇㅇ EDF RMS
+            case ALGO_EDF:
+            if (!is_empty(&ready_queue)) {
+                Process* earliest = check_edf(&ready_queue);
+                if (running == NULL) {
+                    running = edf_remove(&ready_queue);
+                } else if (earliest->deadline < running->deadline) {
+                    // 데드라인 먼저면
+                    enqueue(&ready_queue, running);
+                    running = edf_remove(&ready_queue);
+                }
+            }
+            break;
             }
         // 2. waiting_time 증가는 별도 (큐 크기만큼만!)
         for (int i = 0; i < ready_queue.currenop; i++) {

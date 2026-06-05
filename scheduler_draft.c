@@ -35,20 +35,20 @@ typedef struct {
     int end_time;// 실행 종료 시간
 } GanttRecord; //간트 차트 추적용 일단
 
-//일단 ai로 간트 출력함수 아래 깃코드 바탕으로 만들어봄, 나중에 수정하기 
 void print_gantt_chart(GanttRecord records[], int count, char *algo_name) {
-    printf("\n==================================\n", algo_name);
+    printf("\n========= Gantt Chart [%s] =========\n", algo_name);  // 수정 1
     int i, j;
-
-    // 1. Top Bar 그리기
-    printf("  ");  // 시작 여백
+    
+    // 1. Top Bar
+    printf("  ");
     for(i = 0; i < count; i++){
         int duration = records[i].end_time - records[i].start_time;
         for(j = 0; j < duration; j++) printf("---");
         printf(" ");
     }
-
-    // 2. Middle (Process ID) 그리기
+    printf("\n|");   // 수정 2: 줄바꿈 추가
+    
+    // 2. Middle (Process ID)
     for(i = 0; i < count; i++) {
         int duration = records[i].end_time - records[i].start_time;
         for(j = 0; j < duration - 1; j++) printf(" ");
@@ -56,27 +56,27 @@ void print_gantt_chart(GanttRecord records[], int count, char *algo_name) {
         if (records[i].pid > 0) {
             printf("P%d", records[i].pid);
         } else {
-            printf("ID"); // Idle 상태 (CPU가 쉼)
+            printf("ID");
         }
         
         for(j = 0; j < duration - 1; j++) printf(" ");
         printf("|");
     }
     printf("\n ");
-
-    // 3. Bottom Bar 그리기
+    
+    // 3. Bottom Bar
     for(i = 0; i < count; i++) {
         int duration = records[i].end_time - records[i].start_time;
         for(j = 0; j < duration; j++) printf("--");
         printf(" ");
     }
     printf("\n");
-
-    // 4. Timeline 그리기
+    
+    // 4. Timeline
     printf("%3d", records[0].start_time);
     for(i = 0; i < count; i++) {
         int duration = records[i].end_time - records[i].start_time;
-        for(j = 0; j < duration; j++) printf("   ");  // 3칸씩
+        for(j = 0; j < duration; j++) printf("   ");
         printf("%3d", records[i].end_time);
     }
     printf("\n");
@@ -588,7 +588,108 @@ int main(void) {
     
     Process backup[SIZE];
     Process processarray[SIZE];
-    
+    int is_generated = 0;
+    int choice;
+    while (1) {
+        printf("\n================ CPU 스케줄링 시뮬레이터 ================\n");
+        printf(" 1. 프로세스 랜덤 생성 (현재 상태: %s)\n", is_generated ? "생성 완료" : "미생성");
+        printf(" 2. FCFS (First-Come First-Served) 실행\n");
+        printf(" 3. SJF (Shortest Job First - 비선점/선점 선택) 실행\n");
+        printf(" 4. Priority (우선순위 - 비선점/선점 선택) 실행\n");
+        printf(" 5. Round Robin (RR) 실행\n");
+        printf(" 6. Rate-Monotonic (RM) 실시간 스케줄링 실행\n");
+        printf(" 7. Earliest Deadline First (EDF) 실시간 스케줄링 실행\n");
+        printf(" 8. 시뮬레이터 종료\n");
+        printf("========================================================\n");
+        printf(" 메뉴를 선택하세요: ");
+        
+        if (scanf("%d", &choice) != 1) break;
+        if (choice == 8) {
+            printf("시뮬레이터를 종료합니다.\n");
+            break;
+        }
+
+        if (choice == 1) {
+            printf("생성할 프로세스 개수를 입력하세요 (최대 %d): ", SIZE);
+            scanf("%d", &num_processes);
+            create_process(backup, num_processes);
+            is_generated = 1;
+            
+            printf("\n[생성된 원본 프로세스 목록]\n");
+            for (int i = 0; i < num_processes; i++) {
+                printf("P%d: Arrival=%d, Burst=%d, Priority=%d, Period=%d, Deadline=%d\n",
+                       backup[i].pid, backup[i].arrival_time, backup[i].cpu_burst_time, 
+                       backup[i].priority, backup[i].period, backup[i].deadline);
+            }
+            continue;
+        }
+
+        // 2~7번 메뉴는 프로세스가 먼저 생성되어 있어야 실행 가능
+        if (!is_generated) {
+            printf("오류: 프로세스를 먼저 생성(1번 메뉴)해야 시뮬레이션을 수행할 수 있습니다.\n");
+            continue;
+        }
+
+        // 실행할 때마다 원본 데이터 백업본에서 복사하여 독립된 환경 보장
+        memcpy(processarray, backup, sizeof(Process) * num_processes);
+
+        switch (choice) {
+            case 2:
+                unitedsort(processarray, num_processes, ALGO_FCFS);
+                evaluatesort(processarray, num_processes, "FCFS");
+                break;
+            case 3: {
+                int sub_choice;
+                printf("1. 비선점형 SJF  |  2. 선점형 SJF (SRTF)\n선택: ");
+                scanf("%d", &sub_choice);
+                if (sub_choice == 1) {
+                    unitedsort(processarray, num_processes, ALGO_SJF);
+                    evaluatesort(processarray, num_processes, "SJF (Non-preemptive)");
+                } else {
+                    unitedsort(processarray, num_processes, ALGO_SJF_PREEMPTIVE);
+                    evaluatesort(processarray, num_processes, "SJF (Preemptive)");
+                }
+                break;
+            }
+            case 4: {
+                int sub_choice;
+                printf("1. 비선점형 Priority  |  2. 선점형 Priority\n선택: ");
+                scanf("%d", &sub_choice);
+                if (sub_choice == 1) {
+                    unitedsort(processarray, num_processes, ALGO_PRIORITY);
+                    evaluatesort(processarray, num_processes, "Priority (Non-preemptive)");
+                } else {
+                    unitedsort(processarray, num_processes, ALGO_PRIORITY_PREEMPTIVE);
+                    evaluatesort(processarray, num_processes, "Priority (Preemptive)");
+                }
+                break;
+            }
+            case 5: {
+                int quantum;
+                printf("Time Quantum 값을 입력하세요: ");
+                scanf("%d", &quantum);
+                RRsort(processarray, num_processes, quantum);
+                evaluatesort(processarray, num_processes, "Round Robin");
+                break;
+            }
+            case 6:
+                // RM 스케줄링 진입 전 주기를 static priority로 강제 매핑
+                for (int i = 0; i < num_processes; i++) {
+                    processarray[i].priority = processarray[i].period; 
+                }
+                unitedsort(processarray, num_processes, ALGO_PRIORITY_PREEMPTIVE);
+                evaluatesort(processarray, num_processes, "Rate-Monotonic (RM)");
+                break;
+            case 7:
+                unitedsort(processarray, num_processes, ALGO_EDF);
+                evaluatesort(processarray, num_processes, "Earliest Deadline First (EDF)");
+                break;
+            default:
+                printf("잘못된 번호입니다. 다시 선택해주세요.\n");
+        }
+    }
+    return 0;
+    /*
     create_process(backup, num_processes);
     
     printf("=== Original Processes ===\n");
@@ -623,7 +724,7 @@ int main(void) {
     // 2. 결과 넘겨서 평가하기
     evaluatesort(processarray, num_processes, "Round Robin (q=4)");
     
-    return 0;
+    return 0;&*/
 }
 /*void print_gantt_chart(Process p[], int n)
 {

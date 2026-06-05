@@ -19,6 +19,7 @@ o Preemptive 방식 적용 – SJF, Priority
 • Evaluation(): 각 CPU 스케줄링 알고리즘들간 비교 평가 및 분석
 o Average waiting time
 o Average turnaround tim*/
+#define CORE_COUNT 4//다중코어 일단 해봄
 typedef enum {
     ALGO_FCFS,
     ALGO_SJF,
@@ -98,7 +99,7 @@ typedef struct {
     //반복용
     int repetear;//반복횟수 RMS EMD 아니면 일단 1 이고 이거 둘은 한 5정도로
     int deadline_missed;//놓친거
-
+    int age;//나이(starvation막기)
 } Process;
 typedef struct {
     Process *data[SIZE];
@@ -247,6 +248,7 @@ void create_process(Process processarray[], int processnum){
         processarray[i].deadline = processarray[i].arrival_time + processarray[i].period;
         processarray[i].repetear = 1; //dlfeks 1dlsep
         processarray[i].deadline_missed = 0;
+        processarray[i].age = 0;
     }
 }
 
@@ -310,11 +312,13 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
             //no running process and que no empty and bring prcs from que
                 if (running == NULL && !is_empty(&ready_queue)) {
                     running = dequeue(&ready_queue);
+                    running->age = 0;//나이 다시 0
                 }
                 break;
             case ALGO_SJF:
                 if (running == NULL && !is_empty(&ready_queue)) {
                     running = sjf_remove(&ready_queue);
+                    running->age = 0;//나이 다시 0
                 }
                 break;
             case ALGO_SJF_PREEMPTIVE:
@@ -322,28 +326,51 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
                    Process* shortest = check_sjf(&ready_queue);//chck que
                    if ( running ==NULL) {
                     running = sjf_remove(&ready_queue);
+                    running->age = 0;
                    }else if ( shortest->remaining_time < running->remaining_time) {
                     //현재 실행중인거보다 짧은거 있으면 바꿔주기
                     enqueue(&ready_queue, running); //현재 실행중인거 큐에 넣고
                     running = sjf_remove(&ready_queue); //짧은거 빼서 실행
+                    running->age = 0;//나이 다시 0
                    }
                 }
                 break;
             case ALGO_PRIORITY:
+            //aging적용
+                for (int i = 0; i < ready_queue.currenop; i++) {
+                    Process *p = ready_queue.data[i];
+                    //priority낮을수록 순위 밀리니까, 나이 먹으면 priority줄이도록
+                    if (p->age > 0 && p->age % 10 == 0 && p->priority > 0) {
+                        p->priority--;
+                        printf("[Time %d] P%d aging: priority --> %d\n",currentime, p->pid, p->priority);//확인용 나중에제거
+                    }
+                }
+
                 if (running == NULL && !is_empty(&ready_queue)) {
                     running = priority_remove(&ready_queue);
+                    running->age = 0;//나이 다시 0
                 }
                 break;
             case ALGO_PRIORITY_PREEMPTIVE:
+                for (int i = 0; i < ready_queue.currenop; i++) {
+                    Process *p = ready_queue.data[i];
+                    //priority낮을수록 순위 밀리니까, 나이 먹으면 priority줄이도록
+                    if (p->age > 0 && p->age % 10 == 0 && p->priority > 0) {
+                        p->priority--;
+                        printf("[Time %d] P%d aging: priority --> %d\n",currentime, p->pid, p->priority);//확인용 나중에제거
+                    }
+                }
                 if (!is_empty(&ready_queue)) {
                    Process* highest = check_priority(&ready_queue);//chck que
                    if ( running ==NULL) {
                     running = priority_remove(&ready_queue);
+                    running->age = 0;
                    }else if ( highest->priority < running->priority) {
                     //현재 실행중인거보다 짧은거 있으면 바꿔주기
                     enqueue(&ready_queue, running); //현재 실행중인거 큐에 넣고
                     running = priority_remove(&ready_queue); //짧은거 빼서 실행
                     //
+                    running->age = 0;//나이 다시 0
                    }
                 }
                 break;
@@ -364,6 +391,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
         // 2. waiting_time 증가는 별도 (큐 크기만큼만!)
         for (int i = 0; i < ready_queue.currenop; i++) {
             ready_queue.data[i]->waiting_time++;
+            ready_queue.data[i]->age++;//나이 증가하게
         }
         // ----------------------------------------------------
         // [추가 2] 매 틱마다 CPU 상태를 확인해서 변경될 때만 기록!

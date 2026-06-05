@@ -38,8 +38,6 @@ typedef struct {
 void print_gantt_chart(GanttRecord records[], int count, char *algo_name) {
     printf("\n========= Gantt Chart [%s] =========\n", algo_name);  // 수정 1
     int i, j;
-    
-    // 1. Top Bar
     printf("  ");
     for(i = 0; i < count; i++){
         int duration = records[i].end_time - records[i].start_time;
@@ -620,7 +618,7 @@ void EDFsort(Process processarray[], int processnum) {
                 if (running->repetear > 1) {
                     // 다음 인스턴스 예약 (period 후 도착)
                     running->repetear--;
-                    running->arrival_time = currentime + 1 + running->period;
+                    running->arrival_time = running->deadline; //드리프트 방지
                     running->deadline = running->arrival_time + running->period;
                     running->remaining_time = running->cpu_burst_time;
                     running->cpu_used = 0;
@@ -751,7 +749,7 @@ void RMSsort(Process processarray[], int processnum) {
                 if (running->repetear > 1) {
                     // 다음 인스턴스 예약 (period 후 도착)
                     running->repetear--;
-                    running->arrival_time = currentime + 1 + running->period;
+                    running->arrival_time = running->deadline;//여기도 드리프트
                     running->deadline = running->arrival_time + running->period;
                     running->remaining_time = running->cpu_burst_time;
                     running->cpu_used = 0;

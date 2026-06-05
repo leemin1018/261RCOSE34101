@@ -97,6 +97,10 @@ typedef struct {
     /////EDF RMS
     int deadline;// EDF용 마감 시간
     int period;// RMS용 주기
+    //반복용
+    int repetear;//반복횟수 RMS EMD 아니면 일단 1 이고 이거 둘은 한 5정도로
+    int deadline_missed;//놓친거
+
 } Process;
 typedef struct {
     Process *data[SIZE];
@@ -243,6 +247,8 @@ void create_process(Process processarray[], int processnum){
         //EDF RMS용인데 일단 넣어보고
         processarray[i].period = (rand() % 15) + 10;
         processarray[i].deadline = processarray[i].arrival_time + processarray[i].period;
+        processarray[i].repetear = 1; //dlfeks 1dlsep
+        processarray[i].deadline_missed = 0;
     }
 }
 
@@ -344,7 +350,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
                 }
                 break;
                 //ㅁㅇㅇ EDF RMS
-            case ALGO_EDF:
+            /*case ALGO_EDF:
             if (!is_empty(&ready_queue)) {
                 Process* earliest = check_edf(&ready_queue);
                 if (running == NULL) {
@@ -355,7 +361,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
                     running = edf_remove(&ready_queue);
                 }
             }
-            break;
+            break;일단 RR기반으로 다시 만들어봄*/
             }
         // 2. waiting_time 증가는 별도 (큐 크기만큼만!)
         for (int i = 0; i < ready_queue.currenop; i++) {
@@ -508,15 +514,274 @@ void RRsort(Process processarray[], int processnum, int time_quantum){
         }
         currentime++;   
     }
-
-    // ----------------------------------------------------
-    // [추가 3] 시뮬레이션이 모두 끝나면 마지막 조각의 시간을 닫고 출력!
     if (prev_pid != -2) {
         records[record_cnt].end_time = currentime;
     }
-    
     print_gantt_chart(records, record_cnt + 1, "RR");
-    // ----------------------------------------------------
+}
+//relative_deadline = period
+//absolute_deadline = arrival_time + period
+void EDFsort(Process processarray[], int processnum) {
+    int currentime = 0;
+    int completedprocessprocess = 0;
+    Queue ready_queue;
+    Queue waiting_queue;
+    Process *running = NULL;
+    init_queue(&ready_queue);
+    init_queue(&waiting_queue);
+    
+    GanttRecord records[1000];
+    int record_cnt = 0;
+    int prev_pid = -2;
+    
+    while (completedprocessprocess < processnum) {
+        // 1. 도착 처리
+        for (int i = 0; i < processnum; i++) {
+            if (processarray[i].arrival_time == currentime) {
+                enqueue(&ready_queue, &processarray[i]);
+            }
+        }
+        
+        // 2. I/O 완료 체크
+        for (int i = 0; i < waiting_queue.currenop; ) {
+            if (waiting_queue.data[i]->io_done_time <= currentime) {
+                Process *p = remove_at(&waiting_queue, i);
+                enqueue(&ready_queue, p);
+            } else {
+                i++;
+            }
+        }
+        
+        // 3. ★ EDF 선택 (선점형!) ★
+        if (!is_empty(&ready_queue)) {
+            Process *earliest = check_edf(&ready_queue);
+            if (running == NULL) {
+                running = edf_remove(&ready_queue);
+            } else if (earliest->deadline < running->deadline) {
+                // 더 급한 작업이 있으면 선점
+                enqueue(&ready_queue, running);
+                running = edf_remove(&ready_queue);
+            }
+        }
+        
+        // 4. waiting_time 증가
+        for (int i = 0; i < ready_queue.currenop; i++) {
+            ready_queue.data[i]->waiting_time++;
+        }
+        
+        // 5. Gantt 기록
+        int current_pid = (running != NULL) ? running->pid : 0;
+        if (current_pid != prev_pid) {
+            if (prev_pid != -2) {
+                records[record_cnt].end_time = currentime;
+                record_cnt++;
+            }
+            records[record_cnt].pid = current_pid;
+            records[record_cnt].start_time = currentime;
+            prev_pid = current_pid;
+        }
+        
+        // 6. ★★★ 데드라인 체크 (하드 RT 핵심!) ★★★
+        if (running != NULL && currentime >= running->deadline) {
+            // 데드라인 도달했는데 아직 안 끝남 → 미스!
+            running->deadline_missed++;
+            printf("[Time %d] P%d DEADLINE MISS!\n", currentime, running->pid);
+            
+            if (running->repetear > 1) {
+                // 다음 인스턴스 즉시 시작 (RR의 quantum 만료와 유사)
+                running->repetear--;
+                running->arrival_time = currentime;
+                running->deadline = currentime + running->period;
+                running->remaining_time = running->cpu_burst_time;
+                running->cpu_used = 0;
+                running->io_request_time = (rand() % running->cpu_burst_time) + 1;
+                running->io_done_time = 0;
+                // running 유지 (즉시 새 인스턴스 실행)
+            } else {
+                // 마지막 인스턴스 → 종료
+                running->completion_time = currentime;
+                completedprocessprocess++;
+                running = NULL;
+            }
+            currentime++;
+            continue;  // 이 tick 처리 끝
+        }
+        
+        // 7. 실행
+        if (running != NULL) {
+            running->remaining_time--;
+            running->cpu_used++;
+            
+            // 7-a. 완료 체크 (데드라인 안에 끝남!)
+            if (running->remaining_time == 0) {
+                running->completion_time = currentime + 1;
+                running->turnaround_time += running->completion_time - running->arrival_time;
+                
+                if (running->repetear > 1) {
+                    // 다음 인스턴스 예약 (period 후 도착)
+                    running->repetear--;
+                    running->arrival_time = currentime + 1 + running->period;
+                    running->deadline = running->arrival_time + running->period;
+                    running->remaining_time = running->cpu_burst_time;
+                    running->cpu_used = 0;
+                    running->io_request_time = (rand() % running->cpu_burst_time) + 1;
+                    running->io_done_time = 0;
+                    // CPU 비우고 도착 대기
+                } else {
+                    // 마지막 인스턴스 정상 완료
+                    completedprocessprocess++;
+                }
+                running = NULL;
+            }
+            // 7-b. I/O 발생
+            else if (running->cpu_used == running->io_request_time) {
+                running->io_done_time = currentime + running->io_burst_time;
+                if (running->remaining_time > 0) {
+                    running->io_request_time = running->cpu_used + (rand() % running->remaining_time) + 1;
+                }
+                enqueue(&waiting_queue, running);
+                running = NULL;
+            }
+        }
+        
+        currentime++;
+    }
+    
+    if (prev_pid != -2) {
+        records[record_cnt].end_time = currentime;
+    }
+    print_gantt_chart(records, record_cnt + 1, "EDF");
+}
+void RMSsort(Process processarray[], int processnum) {
+    int currentime = 0;
+    int completedprocessprocess = 0;
+    Queue ready_queue;
+    Queue waiting_queue;
+    Process *running = NULL;
+    init_queue(&ready_queue);
+    init_queue(&waiting_queue);
+    
+    GanttRecord records[1000];
+    int record_cnt = 0;
+    int prev_pid = -2;
+    
+    while (completedprocessprocess < processnum) {
+        // 1. 도착 처리
+        for (int i = 0; i < processnum; i++) {
+            if (processarray[i].arrival_time == currentime) {
+                enqueue(&ready_queue, &processarray[i]);
+            }
+        }
+        
+        // 2. I/O 완료 체크
+        for (int i = 0; i < waiting_queue.currenop; ) {
+            if (waiting_queue.data[i]->io_done_time <= currentime) {
+                Process *p = remove_at(&waiting_queue, i);
+                enqueue(&ready_queue, p);
+            } else {
+                i++;
+            }
+        }
+        
+        // 3. ★ EDF 선택 (선점형!) ★
+        if (!is_empty(&ready_queue)) {
+            Process *highest = check_priority(&ready_queue);
+            if (running == NULL) {
+                running = priority_remove(&ready_queue);
+            } else if (highest->priority < running->priority) {
+                // 더 급한 작업이 있으면 선점
+                enqueue(&ready_queue, running);
+                running = priority_remove(&ready_queue);
+            }
+        }
+        
+        // 4. waiting_time 증가
+        for (int i = 0; i < ready_queue.currenop; i++) {
+            ready_queue.data[i]->waiting_time++;
+        }
+        
+        // 5. Gantt 기록
+        int current_pid = (running != NULL) ? running->pid : 0;
+        if (current_pid != prev_pid) {
+            if (prev_pid != -2) {
+                records[record_cnt].end_time = currentime;
+                record_cnt++;
+            }
+            records[record_cnt].pid = current_pid;
+            records[record_cnt].start_time = currentime;
+            prev_pid = current_pid;
+        }
+        
+        // 6. ★★★ 데드라인 체크 (하드 RT 핵심!) ★★★
+        if (running != NULL && currentime >= running->deadline) {
+            // 데드라인 도달했는데 아직 안 끝남 → 미스!
+            running->deadline_missed++;
+            printf("[Time %d] P%d DEADLINE MISS!\n", currentime, running->pid);
+            
+            if (running->repetear > 1) {
+                // 다음 인스턴스 즉시 시작 (RR의 quantum 만료와 유사)
+                running->repetear--;
+                running->arrival_time = currentime;
+                running->deadline = currentime + running->period;
+                running->remaining_time = running->cpu_burst_time;
+                running->cpu_used = 0;
+                running->io_request_time = (rand() % running->cpu_burst_time) + 1;
+                running->io_done_time = 0;
+                // running 유지 (즉시 새 인스턴스 실행)
+            } else {
+                // 마지막 인스턴스 → 종료
+                running->completion_time = currentime;
+                completedprocessprocess++;
+                running = NULL;
+            }
+            currentime++;
+            continue;  // 이 tick 처리 끝
+        }
+        
+        // 7. 실행
+        if (running != NULL) {
+            running->remaining_time--;
+            running->cpu_used++;
+            
+            // 7-a. 완료 체크 (데드라인 안에 끝남!)
+            if (running->remaining_time == 0) {
+                running->completion_time = currentime + 1;
+                running->turnaround_time += running->completion_time - running->arrival_time;
+                
+                if (running->repetear > 1) {
+                    // 다음 인스턴스 예약 (period 후 도착)
+                    running->repetear--;
+                    running->arrival_time = currentime + 1 + running->period;
+                    running->deadline = running->arrival_time + running->period;
+                    running->remaining_time = running->cpu_burst_time;
+                    running->cpu_used = 0;
+                    running->io_request_time = (rand() % running->cpu_burst_time) + 1;
+                    running->io_done_time = 0;
+                    // CPU 비우고 도착 대기
+                } else {
+                    // 마지막 인스턴스 정상 완료
+                    completedprocessprocess++;
+                }
+                running = NULL;
+            }
+            // 7-b. I/O 발생
+            else if (running->cpu_used == running->io_request_time) {
+                running->io_done_time = currentime + running->io_burst_time;
+                if (running->remaining_time > 0) {
+                    running->io_request_time = running->cpu_used + (rand() % running->remaining_time) + 1;
+                }
+                enqueue(&waiting_queue, running);
+                running = NULL;
+            }
+        }
+        
+        currentime++;
+    }
+    
+    if (prev_pid != -2) {
+        records[record_cnt].end_time = currentime;
+    }
+    print_gantt_chart(records, record_cnt + 1, "RMS");
 }
 int printgantt(){
     return 0;
@@ -525,6 +790,7 @@ void evaluatesort(Process processarray[], int processnum, const char *algo_name)
     printf("\n=== [%s] Evaluation Results ===\n", algo_name);
     
     int total_wait = 0, total_turn = 0;
+    int total_misses = 0;
     
     for (int i = 0; i < processnum; i++) {
         printf("P%d: completion=%d, wait=%d, turnaround=%d\n",
@@ -533,11 +799,17 @@ void evaluatesort(Process processarray[], int processnum, const char *algo_name)
                
         total_wait += processarray[i].waiting_time;
         total_turn += processarray[i].turnaround_time;
+        total_misses += processarray[i].deadline_missed;
     }
     
     printf(">> Avg Waiting: %.2f, Avg Turnaround: %.2f\n",
            (float)total_wait / processnum, 
            (float)total_turn / processnum);
+    if (total_misses > 0) {
+        printf(">> Total Deadline Misses: %d\n", total_misses);
+    } else {
+        printf(">> All deadlines met!\n");
+    }
 }//이것도 일단 ai로 만듬 나중에 수정
 //Io cpu일시정지 근데 이걸 랜덤 틱으로?
 //프로세스 생성시에 랜덤으로 틱들오오는 시간 설정
@@ -672,16 +944,21 @@ int main(void) {
                 evaluatesort(processarray, num_processes, "Round Robin");
                 break;
             }
-            case 6:
-                // RM 스케줄링 진입 전 주기를 static priority로 강제 매핑
+            case 6://RMS
                 for (int i = 0; i < num_processes; i++) {
                     processarray[i].priority = processarray[i].period; 
+                    processarray[i].repetear = 5;
+                    processarray[i].deadline_missed = 0;
                 }
-                unitedsort(processarray, num_processes, ALGO_PRIORITY_PREEMPTIVE);
+                RMSsort(processarray, num_processes); 
                 evaluatesort(processarray, num_processes, "Rate-Monotonic (RM)");
                 break;
-            case 7:
-                unitedsort(processarray, num_processes, ALGO_EDF);
+            case 7://EDF
+                for (int i = 0; i < num_processes; i++) {
+                    processarray[i].repetear = 5;
+                    processarray[i].deadline_missed = 0;
+                }
+                EDFsort(processarray, num_processes);
                 evaluatesort(processarray, num_processes, "Earliest Deadline First (EDF)");
                 break;
             default:
@@ -763,3 +1040,7 @@ int main(void) {
     printf("\n");
  
 }https://gist.github.com/tienminhvy/239823742c8aca42649c951399c7e24a 여기 출처로 개조 ㄱㄱ헛*/
+/* 3. git 명령어
+git add scheduler_draft.c
+git commit -m "..."
+git push*/

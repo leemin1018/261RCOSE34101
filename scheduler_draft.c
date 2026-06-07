@@ -92,7 +92,7 @@ void print_gantt_chart(GanttRecord records[], int count, char *algo_name) {
     printf("\n");
     
     // 텍스트 형태 (항상)
-    printf("\n--- Schedule Detail ---\n");
+    /*printf("\n--- Schedule Detail ---\n");
     for (i = 0; i < count; i++) {
         int duration = records[i].end_time - records[i].start_time;
         if (records[i].pid > 0) {
@@ -103,6 +103,18 @@ void print_gantt_chart(GanttRecord records[], int count, char *algo_name) {
             printf("  Time [%3d - %3d] : IDLE\n", 
                    records[i].start_time, records[i].end_time);
         }
+    }*///가독성 너무 않좋아서 수정함
+    printf("\n--- Schedule Detail ---\n");
+    for (i = 0; i < count; i++) {
+        int duration = records[i].end_time - records[i].start_time;
+        // 라벨
+        char label[8];
+        if (records[i].pid > 0) snprintf(label, sizeof(label), "P%d", records[i].pid);
+        else snprintf(label, sizeof(label), "IDLE");
+        // 막대 (duration 만큼)
+        char bar[200] = "";
+        for (j = 0; j < duration && j < 100; j++) strcat(bar, "#");
+        printf("[%4d-%4d] %-5s |%s\n", records[i].start_time, records[i].end_time, label, bar);
     }
 }
 typedef struct {
@@ -589,7 +601,7 @@ void EDFsort(Process processarray[], int processnum) {
     init_queue(&ready_queue);
     init_queue(&waiting_queue);
     
-    GanttRecord records[1000];
+    GanttRecord records[0xFF]; // 간트 차트 기록용
     int record_cnt = 0;
     int prev_pid = -2;
     
@@ -628,7 +640,7 @@ void EDFsort(Process processarray[], int processnum) {
             ready_queue.data[i]->waiting_time++;
         }
         
-        // 5. Gantt 기록
+        // Gantt 기록
         int current_pid = (running != NULL) ? running->pid : 0;
         if (current_pid != prev_pid) {
             if (prev_pid != -2) {
@@ -644,10 +656,10 @@ void EDFsort(Process processarray[], int processnum) {
         if (running != NULL && currentime >= running->deadline) {
             // 데드라인 도달했는데 아직 안 끝난건 미스난거 
             running->deadline_missed++;
-            printf("[Time %d] P%d DEADLINE MISS!\n", currentime, running->pid);
+            //printf("[Time %d] P%d DEADLINE MISS!\n", currentime, running->pid);
             
             if (running->repetear > 1) {
-                
+                //작업 남음 
                 running->repetear--;
                 running->arrival_time = currentime;
                 running->deadline = currentime + running->period;
@@ -656,8 +668,8 @@ void EDFsort(Process processarray[], int processnum) {
                 running->io_request_time = (rand() % running->cpu_burst_time) + 1;
                 running->io_done_time = 0;
                 // running 유지 (즉시 새 인스턴스 실행)
-            } else {
-                // 마지막 인스턴스 → 종료
+            } else /*if (running->repetear > 1)*/{ //무한루프 버그생기 걍 else로 {
+                // 마지막 인스턴스니까 종료
                 running->completion_time = currentime;
                 running->turnaround_time += running->completion_time - running->arrival_time; //turnaround업데으
                 completedprocessprocess++;
@@ -667,12 +679,12 @@ void EDFsort(Process processarray[], int processnum) {
             continue;  // 이 tick 처리 끝
         }
         
-        // 7. 실행
+        // CPU 실행 (1 tick)
         if (running != NULL) {
             running->remaining_time--;
             running->cpu_used++;
             
-            // 7-a. 완료 체크 (데드라인 안에 끝남!)
+            // 데드라인 내에 끝난거
             if (running->remaining_time == 0) {
                 running->completion_time = currentime + 1;
                 running->turnaround_time += running->completion_time - running->arrival_time;
@@ -693,7 +705,7 @@ void EDFsort(Process processarray[], int processnum) {
                 }
                 running = NULL;
             }
-            // 7-b. I/O 발생
+            // I/O 발생
             else if (running->cpu_used == running->io_request_time) {
                 running->io_done_time = currentime + running->io_burst_time;
                 if (running->remaining_time > 0) {
@@ -722,19 +734,19 @@ void RMSsort(Process processarray[], int processnum) {
     init_queue(&ready_queue);
     init_queue(&waiting_queue);
     
-    GanttRecord records[1000];
+    GanttRecord records[0x7FFF]; // 조각이 많아질 수 있으니 넉넉하게 잡습니다.
     int record_cnt = 0;
     int prev_pid = -2;
     
     while (completedprocessprocess < processnum) {
-        // 1. 도착 처리
+        // 도착 처리
         for (int i = 0; i < processnum; i++) {
             if (processarray[i].arrival_time == currentime) {
                 enqueue(&ready_queue, &processarray[i]);//시간맞게 inqueue
             }
         }
         
-        // 2. I/O 완료 체크
+        // I/O 완료 체크
         for (int i = 0; i < waiting_queue.currenop; ) {
             if (waiting_queue.data[i]->io_done_time <= currentime) {
                 Process *p = remove_at(&waiting_queue, i);
@@ -775,9 +787,9 @@ void RMSsort(Process processarray[], int processnum) {
         // 데드라인 체크는 EDF랑 다르게 스케쥴링은 안들어가고 그냥 평가용/ 루프방지 걍 EDF 복붙함
         //루프방지- 데드라인 놓친놈이 계속 점유하는거 막을려고
         if (running != NULL && currentime >= running->deadline) {
-            // 데드라인 도달했는데 아직 안 끝남 → 미스!
+            // 데드라인 도달했는데 미스 경우 
             running->deadline_missed++;
-            printf("[Time %d] P%d DEADLINE MISS!\n", currentime, running->pid);
+            //printf("[Time %d] P%d DEADLINE MISS!\n", currentime, running->pid);
             
             if (running->repetear > 1) {
                 // 다음 인스턴스 즉시 시작 (RR의 quantum 만료와 유사)
@@ -789,9 +801,10 @@ void RMSsort(Process processarray[], int processnum) {
                 running->io_request_time = (rand() % running->cpu_burst_time) + 1;
                 running->io_done_time = 0;
                 // running 유지 (즉시 새 인스턴스 실행)
-            } else {
+            } else { //무한루프 버그생기 걍 else로 {
                 // 마지막 인스턴스 → 종료
                 running->completion_time = currentime;
+                running->turnaround_time += running->completion_time - running->arrival_time;//일단 추가 turnaround 이상함
                 completedprocessprocess++;
                 running = NULL;
             }
@@ -799,12 +812,12 @@ void RMSsort(Process processarray[], int processnum) {
             continue;  // 이 tick 처리 끝
         }
         
-        // 7. 실행
+        // 실행
         if (running != NULL) {
             running->remaining_time--;
             running->cpu_used++;
             
-            // 7-a. 완료 체크 (데드라인 안에 끝남!)
+            // 데드라인 안에 끝남
             if (running->remaining_time == 0) {
                 running->completion_time = currentime + 1;
                 running->turnaround_time += running->completion_time - running->arrival_time;
@@ -825,7 +838,7 @@ void RMSsort(Process processarray[], int processnum) {
                 }
                 running = NULL;
             }
-            // 7-b. I/O 발생
+            // I/O 발생
             else if (running->cpu_used == running->io_request_time) {
                 running->io_done_time = currentime + running->io_burst_time;
                 if (running->remaining_time > 0) {
@@ -857,12 +870,12 @@ void evaluatesort(Process processarray[], int processnum, const char *algo_name)
         printf("P%d: completion=%d, wait=%d, turnaround=%d\n",
                processarray[i].pid, processarray[i].completion_time,
                processarray[i].waiting_time, processarray[i].turnaround_time);
-               
+        //누적값  
         total_wait += processarray[i].waiting_time;
         total_turn += processarray[i].turnaround_time;
         total_misses += processarray[i].deadline_missed;
     }
-    
+    //평균
     printf(">> Avg Waiting: %.2f, Avg Turnaround: %.2f\n",
            (float)total_wait / processnum, 
            (float)total_turn / processnum);
@@ -963,7 +976,7 @@ int main(void) {
             continue;
         }
 
-        // 실행할 때마다 원본 데이터 백업본에서 복사하여 독립된 환경 보장
+        // 데이터 실행전에 복원- 같은 데이터로 여러 알고리즘 비교하려고
         memcpy(processarray, backup, sizeof(Process) * num_processes);
 
         switch (choice) {

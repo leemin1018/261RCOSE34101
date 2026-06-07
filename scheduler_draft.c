@@ -137,6 +137,8 @@ typedef struct {
     int repetear;//반복횟수 RMS EMD 아니면 일단 1 이고 이거 둘은 한 5정도로
     int deadline_missed;//놓친거
     int age;//나이(starvation막기)
+    int sjf_age;///이거랑 남은 시간 더해서 이걸로 sjf
+    int sjfcombi;
 } Process;
 typedef struct {
     Process *data[SIZE];
@@ -195,13 +197,17 @@ Process* remove_at(Queue *q, int idx) {
 int size(Queue *q) {
     return q->currenop;
 }
+//age 적용해서 남은시간에 나이 뺴도록 함 
 Process* sjf_remove(Queue *q) {
     if (is_empty(q)) return NULL;
     //큐 빈
     int min_idx = 0;
+    int min_combi = q->data[0]->remaining_time - q->data[0]->age;
     for (int i = 1; i < q->currenop; i++) { // 동점-앞에 있는 큐가 나옴
-        if (q->data[i]->remaining_time < q->data[min_idx]->remaining_time) {//더 작으면 먼저 나오게 함
-            min_idx = i; //교체하고
+        int combi = q->data[i]->remaining_time - q->data[i]->age;
+        if (combi < min_combi) {
+            min_idx = i;
+            min_combi = combi;
         }
     }
     return remove_at(q, min_idx); //그 위치에서 빼기
@@ -211,9 +217,12 @@ Process* check_sjf(Queue *q) {
     if (is_empty(q)) return NULL;
     //큐 빈
     int min_idx = 0;
+    int min_combi = q->data[0]->remaining_time - q->data[0]->age;
     for (int i = 1; i < q->currenop; i++) {
-        if (q->data[i]->remaining_time < q->data[min_idx]->remaining_time) {
+        int combi = q->data[i]->remaining_time - q->data[i]->age;
+        if (combi < min_combi) {
             min_idx = i;
+            min_combi = combi;
         }
     }
     return q->data[min_idx];
@@ -270,7 +279,7 @@ void create_process(Process processarray[], int processnum){
         processarray[i].pid = i+1;
         processarray[i].arrival_time = rand() % 10;
         processarray[i].cpu_burst_time = (rand() % 10) + 1;
-        processarray[i].io_burst_time = (rand() % 5); 
+        processarray[i].io_burst_time = (rand() % 5); //io 0 이면 안되나
         processarray[i].priority = rand() % 5;
         processarray[i].remaining_time = processarray[i].cpu_burst_time; 
         processarray[i].completion_time = 0;// 끝난시간 기록하는거
@@ -286,13 +295,15 @@ void create_process(Process processarray[], int processnum){
         processarray[i].repetear = 1; //dlfeks 1dlsep
         processarray[i].deadline_missed = 0;
         processarray[i].age = 0;
+        processarray[i].sjf_age = 0;
+        processarray[i].sjfcombi = 0;
     }
 }
 
 //매 틱마다로 변경하기 
 /*
 void FIFO(Process processarray[], int processnum){
-    int currentime = 0
+    int currentime = 0;
     sortbyarrival(processarray, processnum,1 );
     for (int i=0; i<processnum; i++){
         if (currentime < processarray[i].arrival_time) {
@@ -356,6 +367,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo, const ch
                     running->age = 0;//나이 다시 0
                 }
                 break;
+                //둘다 age적용 어짜피 위에 함수 자체 고쳐서 그냉 SJF는 둬도 그대로 돌아감
             case ALGO_SJF:
                 if (running == NULL && !is_empty(&ready_queue)) {
                     running = sjf_remove(&ready_queue);
@@ -363,16 +375,27 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo, const ch
                 }
                 break;
             case ALGO_SJF_PREEMPTIVE:
+                for (int i = 0; i < ready_queue.currenop; i++) {
+                    Process *p = ready_queue.data[i];
+                    if (p->age > 0 && p->age % 10 == 0) {
+                        rintf("[Time %d] P%d SJF aging: age=%d, combi=%d\n",currentime, p->pid, p->age, p->remaining_time - (p->age / 10));
+                    }
+                }
                 if (!is_empty(&ready_queue)) {//cpu가 덩작중이여도 들어올수 있으니까조건 바꾸고
                    Process* shortest = check_sjf(&ready_queue);//chck que
                    if ( running ==NULL) {//cpu빈 상태면 그냥 일반  sjf
                     running = sjf_remove(&ready_queue);
                     running->age = 0;
-                   }else if ( shortest->remaining_time < running->remaining_time) {
+                   }else  {
                     //현재 실행중인거보다 짧은거 있으면 바꿔주기
-                    enqueue(&ready_queue, running); //현재 실행중인거 큐에 넣고
-                    running = sjf_remove(&ready_queue); //짧은거 빼서 실행
-                    running->age = 0;//나이 다시 0
+                    //나이 적용
+                    int short_combi = shortest->remaining_time - (shortest->age/10);
+                    int run_combi = running->remaining_time - (running->age/10);
+                    if (short_combi < run_combi) {
+                        enqueue(&ready_queue, running);//현재 실행중인거 큐에 넣고
+                        running = sjf_remove(&ready_queue);//짧은거 빼서 실행
+                        running->age = 0;//나이 다시 0
+                    }
                    }
                 }
                 break;
@@ -886,7 +909,7 @@ void evaluatesort(Process processarray[], int processnum, const char *algo_name)
     }
 }//이것도 일단 ai로 만듬 나중에 수정
 //Io cpu일시정지 근데 이걸 랜덤 틱으로?
-//프로세스 생성시에 랜덤으로 틱들오오는 시간 설정
+//프로세스 생성시에 랜덤으로 틱들오오는 시간 설정 이거 안씀
 int IOintrrupt(){
     return 0;
 }

@@ -296,7 +296,6 @@ void create_process(Process processarray[], int processnum){
         processarray[i].deadline_missed = 0;
         processarray[i].age = 0;
         processarray[i].sjf_age = 0;
-        processarray[i].sjfcombi = 0;
     }
 }
 

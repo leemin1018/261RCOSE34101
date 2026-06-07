@@ -138,7 +138,7 @@ typedef struct {
     int deadline_missed;//놓친거
     int age;//나이(starvation막기)
     int sjf_age;///이거랑 남은 시간 더해서 이걸로 sjf
-    int sjfcombi;
+    //int sjfcombi;
 } Process;
 typedef struct {
     Process *data[SIZE];
@@ -202,9 +202,9 @@ Process* sjf_remove(Queue *q) {
     if (is_empty(q)) return NULL;
     //큐 빈
     int min_idx = 0;
-    int min_combi = q->data[0]->remaining_time - q->data[0]->age;
+    int min_combi = q->data[0]->remaining_time - (q->data[0]->age / 10);
     for (int i = 1; i < q->currenop; i++) { // 동점-앞에 있는 큐가 나옴
-        int combi = q->data[i]->remaining_time - q->data[i]->age;
+        int combi = q->data[i]->remaining_time - (q->data[i]->age / 10);
         if (combi < min_combi) {
             min_idx = i;
             min_combi = combi;
@@ -217,9 +217,9 @@ Process* check_sjf(Queue *q) {
     if (is_empty(q)) return NULL;
     //큐 빈
     int min_idx = 0;
-    int min_combi = q->data[0]->remaining_time - q->data[0]->age;
+    int min_combi = q->data[0]->remaining_time - (q->data[0]->age / 10);
     for (int i = 1; i < q->currenop; i++) {
-        int combi = q->data[i]->remaining_time - q->data[i]->age;
+        int combi = q->data[i]->remaining_time - (q->data[i]->age / 10);
         if (combi < min_combi) {
             min_idx = i;
             min_combi = combi;
@@ -323,6 +323,10 @@ void FIFO(Process processarray[], int processnum){
 void unitedsort(Process processarray[], int processnum, Algorithm algo, const char *algo_name){
     int currentime = 0;//틱
     int completedprocessprocess =0;
+    //캐시 힛 미스 추가 
+    int cache_warm_pid = -1; // 직전 틱 pid -1은첨
+    int cache_hits = 0;
+    int cache_misses = 0;
     //int inprocessnadready =0;
     //int inprocess =0;
     //int leftprocess=processnum;
@@ -378,7 +382,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo, const ch
                 for (int i = 0; i < ready_queue.currenop; i++) {
                     Process *p = ready_queue.data[i];
                     if (p->age > 0 && p->age % 10 == 0) {
-                        rintf("[Time %d] P%d SJF aging: age=%d, combi=%d\n",currentime, p->pid, p->age, p->remaining_time - (p->age / 10));
+                        printf("[Time %d] P%d SJF aging: age=%d, combi=%d\n",currentime, p->pid, p->age, p->remaining_time - (p->age / 10));
                     }
                 }
                 if (!is_empty(&ready_queue)) {//cpu가 덩작중이여도 들어올수 있으니까조건 바꾸고
@@ -419,6 +423,8 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo, const ch
                 for (int i = 0; i < ready_queue.currenop; i++) {
                     Process *p = ready_queue.data[i];
                     //priority낮을수록 순위 밀리니까, 나이 먹으면 priority줄이도록
+                    //이건 0 아래로 못감 근데 다같이 너무 오래 돌면 전부 0 되서 
+                    //이럼 그냥 FCFS
                     if (p->age > 0 && p->age % 10 == 0 && p->priority > 0) {
                         p->priority--;
                         printf("[Time %d] P%d aging: priority --> %d\n",currentime, p->pid, p->priority);//확인용 나중에제거
@@ -454,6 +460,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo, const ch
             break;일단 RR기반으로 다시 만들어봄*/
             }
         // wait time증가하고 age도 갗이
+        
         for (int i = 0; i < ready_queue.currenop; i++) {
             ready_queue.data[i]->waiting_time++;
             ready_queue.data[i]->age++;//나이 증가하게
@@ -475,6 +482,12 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo, const ch
             prev_pid = current_pid;
         }//ai도움 받음 간트차트
         //1틱씩 실행하기
+        if (current_pid == cache_warm_pid) {
+            cache_hits++;
+        } else {
+            cache_misses++;
+            cache_warm_pid = current_pid;
+        }//캐시 힛 미스 구현시도같은 작업 실행 연속이면 힛, 작업 바뀌면 미스로 
         if (running != NULL) {
             //cpu 동작중이면 시간 일단 흐르게 두고 
             running->remaining_time--;
@@ -502,21 +515,26 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo, const ch
         
         currentime++;
     }
-    // ----------------------------------------------------
-    // [추가 3] 시뮬레이션이 모두 끝나면 마지막 조각의 시간을 닫고 출력!
+    //끝나면출력하세
     if (prev_pid != -2) {
         records[record_cnt].end_time = currentime;
     }
     
     // 방금 전에 작성한 출력 함수 호출 (count는 인덱스 0부터 시작했으니 +1)
     print_gantt_chart(records, record_cnt + 1, algo_name);
-    // ---------------------------------------------------- AI러 ㅇ;ㄹ단
+    printf("\n--- Cache Statistics ---\n");
+    printf("  Cache Hits:   %d\n", cache_hits);
+    printf("  Cache Misses: %d\n", cache_misses);
+    printf("  Miss Rate:    %.2f%%\n", (cache_misses * 100.0) / (cache_hits + cache_misses));
 }
 // FCFS+시간퀀텀
 // FCFS+시간퀀텀
 void RRsort(Process processarray[], int processnum, int time_quantum){
     int currentime = 0;
     int completedprocessprocess =0;
+    int cache_warm_pid = -1; // 직전 틱 pid -1은첨
+    int cache_hits = 0;
+    int cache_misses = 0;
     //int inprocessnadready =0;
     //int inprocess =0;
     //int leftprocess=processnum;
@@ -551,6 +569,7 @@ void RRsort(Process processarray[], int processnum, int time_quantum){
                 i++;
             }
         }
+    
         //cpu 비고 큐는 안비면 가져오기, 시간 -0
         if (running == NULL && !is_empty(&ready_queue)) {
             running = dequeue(&ready_queue);
@@ -574,7 +593,12 @@ void RRsort(Process processarray[], int processnum, int time_quantum){
             prev_pid = current_pid;
         }
         // ----------------------------------------------------
-
+        if (current_pid == cache_warm_pid) {
+            cache_hits++;
+        } else {
+            cache_misses++;
+            cache_warm_pid = current_pid;
+        }//캐시 힛 미스 구현시도같은 작업 실행 연속이면 힛, 작업 바뀌면 미스로 
         //Run RR
         if (running != NULL) {
             running->remaining_time--;
@@ -612,19 +636,26 @@ void RRsort(Process processarray[], int processnum, int time_quantum){
         records[record_cnt].end_time = currentime;
     }
     print_gantt_chart(records, record_cnt + 1, "RR");
+    printf("\n--- Cache Statistics ---\n");
+    printf("  Cache Hits:   %d\n", cache_hits);
+    printf("  Cache Misses: %d\n", cache_misses);
+    printf("  Miss Rate:    %.2f%%\n", (cache_misses * 100.0) / (cache_hits + cache_misses));
 }
 //relative_deadline = period
 //absolute_deadline = arrival_time + period
 void EDFsort(Process processarray[], int processnum) {
     int currentime = 0;
     int completedprocessprocess = 0;
+    int cache_warm_pid = -1; // 직전 틱 pid -1은첨
+    int cache_hits = 0;
+    int cache_misses = 0;
     Queue ready_queue;
     Queue waiting_queue;
     Process *running = NULL;
     init_queue(&ready_queue);
     init_queue(&waiting_queue);
     
-    GanttRecord records[0xFF]; // 간트 차트 기록용
+    GanttRecord records[0x7FFF]; // 간트 차트 기록용
     int record_cnt = 0;
     int prev_pid = -2;
     
@@ -674,7 +705,12 @@ void EDFsort(Process processarray[], int processnum) {
             records[record_cnt].start_time = currentime;
             prev_pid = current_pid;
         }
-        
+        if (current_pid == cache_warm_pid) {
+            cache_hits++;
+        } else {
+            cache_misses++;
+            cache_warm_pid = current_pid;
+        }//캐시 힛 미스 구현시도같은 작업 실행 연속이면 힛, 작업 바뀌면 미스로 
         // RMS랑 다르게 예는 데드라인 자체가 정렬에 영향줌 
         if (running != NULL && currentime >= running->deadline) {
             // 데드라인 도달했는데 아직 안 끝난건 미스난거 
@@ -746,11 +782,18 @@ void EDFsort(Process processarray[], int processnum) {
         records[record_cnt].end_time = currentime;
     }
     print_gantt_chart(records, record_cnt + 1, "EDF");
+    printf("\n--- Cache Statistics ---\n");
+    printf("  Cache Hits:   %d\n", cache_hits);
+    printf("  Cache Misses: %d\n", cache_misses);
+    printf("  Miss Rate:    %.2f%%\n", (cache_misses * 100.0) / (cache_hits + cache_misses));
 }
 //주기 짧으면 우선 , 이건 안바뀜
 void RMSsort(Process processarray[], int processnum) {
     int currentime = 0;
     int completedprocessprocess = 0;
+    int cache_warm_pid = -1; // 직전 틱 pid -1은첨
+    int cache_hits = 0;
+    int cache_misses = 0;
     Queue ready_queue;
     Queue waiting_queue;
     Process *running = NULL;
@@ -806,7 +849,12 @@ void RMSsort(Process processarray[], int processnum) {
             records[record_cnt].start_time = currentime;
             prev_pid = current_pid;
         }
-        
+        if (current_pid == cache_warm_pid) {
+            cache_hits++;
+        } else {
+            cache_misses++;
+            cache_warm_pid = current_pid;
+        }//캐시 힛 미스 구현시도같은 작업 실행 연속이면 힛, 작업 바뀌면 미스로 
         // 데드라인 체크는 EDF랑 다르게 스케쥴링은 안들어가고 그냥 평가용/ 루프방지 걍 EDF 복붙함
         //루프방지- 데드라인 놓친놈이 계속 점유하는거 막을려고
         if (running != NULL && currentime >= running->deadline) {
@@ -879,6 +927,10 @@ void RMSsort(Process processarray[], int processnum) {
         records[record_cnt].end_time = currentime;
     }
     print_gantt_chart(records, record_cnt + 1, "RMS");
+    printf("\n--- Cache Statistics ---\n");
+    printf("  Cache Hits:   %d\n", cache_hits);
+    printf("  Cache Misses: %d\n", cache_misses);
+    printf("  Miss Rate:    %.2f%%\n", (cache_misses * 100.0) / (cache_hits + cache_misses));
 }
 int printgantt(){
     return 0;

@@ -19,7 +19,7 @@ o Preemptive 방식 적용 – SJF, Priority
 • Evaluation(): 각 CPU 스케줄링 알고리즘들간 비교 평가 및 분석
 o Average waiting time
 o Average turnaround tim*/
-#define CORE_COUNT 4//다중코어 일단 해봄
+//#define CORE_COUNT 4//다중코어 일단 해봄
 typedef enum {
     ALGO_FCFS,
     ALGO_SJF,
@@ -37,48 +37,73 @@ typedef struct {
 } GanttRecord; //간트 차트 추적용 일단
 
 void print_gantt_chart(GanttRecord records[], int count, char *algo_name) {
-    printf("\n========= Gantt Chart [%s] =========\n", algo_name);  // 수정 1
+    printf("\n========= Gantt Chart [%s] =========\n", algo_name);
     int i, j;
-    printf("  ");
+    
+    // Top Bar
+    printf(" ");
     for(i = 0; i < count; i++){
         int duration = records[i].end_time - records[i].start_time;
-        for(j = 0; j < duration; j++) printf("---");
+        for(j = 0; j < duration * 3; j++) printf("-");
         printf(" ");
     }
-    printf("\n|");   // 수정 2: 줄바꿈 추가
+    printf("\n");
     
-    // 2. Middle (Process ID)
+    // Middle (Process ID) - 중앙 정렬
     for(i = 0; i < count; i++) {
         int duration = records[i].end_time - records[i].start_time;
-        for(j = 0; j < duration - 1; j++) printf(" ");
+        int width = duration * 3;
         
+        char label[16];
         if (records[i].pid > 0) {
-            printf("P%d", records[i].pid);
+            snprintf(label, sizeof(label), "P%d", records[i].pid);
         } else {
-            printf("ID");
+            snprintf(label, sizeof(label), "ID");
         }
         
-        for(j = 0; j < duration - 1; j++) printf(" ");
+        int label_len = strlen(label);
+        int padding = width - label_len;
+        int left_pad = padding / 2;
+        int right_pad = padding - left_pad;
+        
         printf("|");
+        for(j = 0; j < left_pad; j++) printf(" ");
+        printf("%s", label);
+        for(j = 0; j < right_pad; j++) printf(" ");
     }
-    printf("\n ");
+    printf("|\n");
     
-    // 3. Bottom Bar
+    // Bottom Bar
+    printf(" ");
     for(i = 0; i < count; i++) {
         int duration = records[i].end_time - records[i].start_time;
-        for(j = 0; j < duration; j++) printf("--");
+        for(j = 0; j < duration * 3; j++) printf("-");
         printf(" ");
     }
     printf("\n");
     
-    // 4. Timeline
-    printf("%3d", records[0].start_time);
+    // Timeline
+    printf("%-3d", records[0].start_time);
     for(i = 0; i < count; i++) {
         int duration = records[i].end_time - records[i].start_time;
-        for(j = 0; j < duration; j++) printf("   ");
-        printf("%3d", records[i].end_time);
+        for(j = 0; j < duration * 3 - 2; j++) printf(" ");
+        printf("%-3d", records[i].end_time);
     }
     printf("\n");
+    
+    // 텍스트 형태 (항상)
+    printf("\n--- Schedule Detail ---\n");
+    for (i = 0; i < count; i++) {
+        int duration = records[i].end_time - records[i].start_time;
+        if (records[i].pid > 0) {
+            printf("  Time [%3d - %3d] : P%d (duration: %d)\n", 
+                   records[i].start_time, records[i].end_time, 
+                   records[i].pid, duration);
+        } else {
+            printf("  Time [%3d - %3d] : IDLE\n", 
+                   records[i].start_time, records[i].end_time);
+        }
+    }
 }
 typedef struct {
     int pid;//프로세스 id
@@ -236,11 +261,11 @@ void create_process(Process processarray[], int processnum){
         processarray[i].io_burst_time = (rand() % 5); 
         processarray[i].priority = rand() % 5;
         processarray[i].remaining_time = processarray[i].cpu_burst_time; 
-        processarray[i].completion_time = 0;
-        processarray[i].waiting_time = 0;
-        processarray[i].turnaround_time = 0;
+        processarray[i].completion_time = 0;// 끝난시간 기록하는거
+        processarray[i].waiting_time = 0;//그냥 대기시간
+        processarray[i].turnaround_time = 0;// 반환시간 completion - arrival으로 계산함
         //processarray[i].srandom = rand() % 1000;//랜덤값ㅔ
-        processarray[i].cpu_used = 0;
+        processarray[i].cpu_used = 0;//Io 발생시점 확인용
         processarray[i].io_request_time = (rand() % processarray[i].cpu_burst_time) + 1; // CPU 사용 중 랜덤한 시점에 I/O 요청
         processarray[i].io_done_time = 0; // I/O 완료 시간 초기화
         //EDF RMS용인데 일단 넣어보고
@@ -272,32 +297,35 @@ void FIFO(Process processarray[], int processnum){
 //어짜피 코드 비슷하니까 걍 같은 알고리즘 기반에 정렬 큐만 다르게 ㄱㄱ
 //Process* sjf_remove( Process* check_sjf(Queue *q
 // Process* priority_remove(Queue *q) Process* check_priority(Queue *q)7
-void unitedsort(Process processarray[], int processnum, Algorithm algo){
-    int currentime = 0;
+void unitedsort(Process processarray[], int processnum, Algorithm algo, const char *algo_name){
+    int currentime = 0;//틱
     int completedprocessprocess =0;
     //int inprocessnadready =0;
     //int inprocess =0;
     //int leftprocess=processnum;
-    Queue ready_queue;
-    Queue waiting_queue;
-    Process *running = NULL;
+    Queue ready_queue;//cpu대기
+    Queue waiting_queue;//io대기
+    Process *running = NULL;//null=idle
     init_queue(&ready_queue);
     init_queue(&waiting_queue);
     // ----------------------------------------------------
     // [추가 1] 간트 차트 기록용 변수 선언
     GanttRecord records[1000]; // 조각이 많아질 수 있으니 넉넉하게 잡습니다.
     int record_cnt = 0;
-    int prev_pid = -2;         // 이전 틱에서 실행된 프로세스 ID (-2는 초기 상태)
+    int prev_pid = -2;//idle은 0이니까 안겹치게 걍 -2(기록 안한거)
     // ---------------------------------------------------- AI추가
     while (completedprocessprocess < processnum) {
         //프로세스 도착하면 준비큐로
+        //첨부터 다뒤져서 지금 오는거 레디큐오
         for (int i = 0; i < processnum; i++) {
             if (processarray[i].arrival_time == currentime) {
+                ///도달시간 오면 enque
                 enqueue(&ready_queue, &processarray[i]);
                 }
         }
         ///IO체크
         for (int i = 0; i < waiting_queue.currenop; ) {
+            //io끝난거 웨이팅에서 레디큐로
             if (waiting_queue.data[i]->io_done_time <= currentime) {
                 Process *p = remove_at(&waiting_queue, i);
                 enqueue(&ready_queue, p);
@@ -310,6 +338,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
         switch (algo){
             case ALGO_FCFS:
             //no running process and que no empty and bring prcs from que
+            //running null은 CPU빈 상태
                 if (running == NULL && !is_empty(&ready_queue)) {
                     running = dequeue(&ready_queue);
                     running->age = 0;//나이 다시 0
@@ -322,9 +351,9 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
                 }
                 break;
             case ALGO_SJF_PREEMPTIVE:
-                if (!is_empty(&ready_queue)) {
+                if (!is_empty(&ready_queue)) {//cpu가 덩작중이여도 들어올수 있으니까조건 바꾸고
                    Process* shortest = check_sjf(&ready_queue);//chck que
-                   if ( running ==NULL) {
+                   if ( running ==NULL) {//cpu빈 상태면 그냥 일반  sjf
                     running = sjf_remove(&ready_queue);
                     running->age = 0;
                    }else if ( shortest->remaining_time < running->remaining_time) {
@@ -345,7 +374,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
                         printf("[Time %d] P%d aging: priority --> %d\n",currentime, p->pid, p->priority);//확인용 나중에제거
                     }
                 }
-
+                //cpu 비었고 큐 안비면 priority 높은거 가져오기
                 if (running == NULL && !is_empty(&ready_queue)) {
                     running = priority_remove(&ready_queue);
                     running->age = 0;//나이 다시 0
@@ -360,6 +389,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
                         printf("[Time %d] P%d aging: priority --> %d\n",currentime, p->pid, p->priority);//확인용 나중에제거
                     }
                 }
+                //선점형이니까 cpu조건은 빼고
                 if (!is_empty(&ready_queue)) {
                    Process* highest = check_priority(&ready_queue);//chck que
                    if ( running ==NULL) {
@@ -388,38 +418,39 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
             }
             break;일단 RR기반으로 다시 만들어봄*/
             }
-        // 2. waiting_time 증가는 별도 (큐 크기만큼만!)
+        // wait time증가하고 age도 갗이
         for (int i = 0; i < ready_queue.currenop; i++) {
             ready_queue.data[i]->waiting_time++;
             ready_queue.data[i]->age++;//나이 증가하게
         }
-        // ----------------------------------------------------
-        // [추가 2] 매 틱마다 CPU 상태를 확인해서 변경될 때만 기록!
-        int current_pid = (running != NULL) ? running->pid : 0; // 0은 CPU가 쉬는 상태(Idle)
+        //Ganntt 기록용인데- pid가 바뀔때만 기록하게 -그니까 프로세스 병경시
+        int current_pid = (running != NULL) ? running->pid : 0;// 0은 CPU가 쉬는 상태(Idle)
 
         if (current_pid != prev_pid) {
-            // CPU 점유가 바뀌었다면 (Context Switch 발생)
+            // CPU 점유가 바뀜- context switch 
             if (prev_pid != -2) { 
-                // 처음 시작이 아니라면, 방금 전까지 실행되던 조각의 끝나는 시간을 현재 시간으로 닫아줌
+                //첫번쨰 기록 아니면
+                //시뮬 전 시간 
                 records[record_cnt].end_time = currentime;
-                record_cnt++;
+                record_cnt++;//다름 슬롯으로 
             }
-            // 새로운 조각 기록 시작
+            // 새 부분 기록하고 
             records[record_cnt].pid = current_pid;
             records[record_cnt].start_time = currentime;
             prev_pid = current_pid;
-        }
-        // ----------------------------------------------------여기도 일단 ai로 나중에 수정하
+        }//ai도움 받음 간트차트
         //1틱씩 실행하기
         if (running != NULL) {
+            //cpu 동작중이면 시간 일단 흐르게 두고 
             running->remaining_time--;
             running->cpu_used++;
-            // 4. 완료 체크
+            // cpu다돌아가면 
             if (running->remaining_time == 0) {
                 running->completion_time = currentime + 1;
                 running->turnaround_time = running->completion_time - running->arrival_time;
                 completedprocessprocess++;
                 running = NULL;  // CPU 비움
+                //일단 cpu완료처리하고 
             }else if (running->cpu_used == running->io_request_time) {
                 //IO요청 실행 중인 프로세스가 I/O 모드로 전환되어 잠시 빠진다
                 //실행중이던 작업은 일단 waiting 큐로 빼고 IO 시작 IO중에도 다른 프로세스는 계속 돌아가게 종료후 wait에서 다시 rady로
@@ -443,7 +474,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo){
     }
     
     // 방금 전에 작성한 출력 함수 호출 (count는 인덱스 0부터 시작했으니 +1)
-    print_gantt_chart(records, record_cnt + 1, "not RR");
+    print_gantt_chart(records, record_cnt + 1, algo_name);
     // ---------------------------------------------------- AI러 ㅇ;ㄹ단
 }
 // FCFS+시간퀀텀
@@ -476,6 +507,7 @@ void RRsort(Process processarray[], int processnum, int time_quantum){
                 }
         }
         //Io추가 ㄲRR
+        //io끝난거 웨이팅에서 레디큐로
         for (int i = 0; i < waiting_queue.currenop; ) {
             if (waiting_queue.data[i]->io_done_time <= currentime) {
                 Process *p = remove_at(&waiting_queue, i);
@@ -484,16 +516,17 @@ void RRsort(Process processarray[], int processnum, int time_quantum){
                 i++;
             }
         }
+        //cpu 비고 큐는 안비면 가져오기, 시간 -0
         if (running == NULL && !is_empty(&ready_queue)) {
             running = dequeue(&ready_queue);
             usedtime = 0;
         }
+        //wait time증가
         for (int i = 0; i < ready_queue.currenop; i++) {
             ready_queue.data[i]->waiting_time++;
+            ready_queue.data[i]->age++;
         }
-
-        // ----------------------------------------------------
-        // [추가 2] 매 틱마다 CPU 상태를 확인해서 변경될 때만 기록!
+        //cpu 상태 바뀌면 매틱 기록
         int current_pid = (running != NULL) ? running->pid : 0; 
 
         if (current_pid != prev_pid) {
@@ -561,14 +594,14 @@ void EDFsort(Process processarray[], int processnum) {
     int prev_pid = -2;
     
     while (completedprocessprocess < processnum) {
-        // 1. 도착 처리
+        // 도착 처리
         for (int i = 0; i < processnum; i++) {
             if (processarray[i].arrival_time == currentime) {
                 enqueue(&ready_queue, &processarray[i]);
             }
         }
         
-        // 2. I/O 완료 체크
+        // I/O 완료 체크
         for (int i = 0; i < waiting_queue.currenop; ) {
             if (waiting_queue.data[i]->io_done_time <= currentime) {
                 Process *p = remove_at(&waiting_queue, i);
@@ -578,7 +611,7 @@ void EDFsort(Process processarray[], int processnum) {
             }
         }
         
-        // 3. ★ EDF 선택 (선점형!) ★
+        // 선점형 EDF 스케줄링 이건 데드라인 기준으로 정렬하게 함 RMS은 주기기준 
         if (!is_empty(&ready_queue)) {
             Process *earliest = check_edf(&ready_queue);
             if (running == NULL) {
@@ -590,7 +623,7 @@ void EDFsort(Process processarray[], int processnum) {
             }
         }
         
-        // 4. waiting_time 증가
+        // waiting_time 증가
         for (int i = 0; i < ready_queue.currenop; i++) {
             ready_queue.data[i]->waiting_time++;
         }
@@ -607,14 +640,14 @@ void EDFsort(Process processarray[], int processnum) {
             prev_pid = current_pid;
         }
         
-        // 6. ★★★ 데드라인 체크 (하드 RT 핵심!) ★★★
+        // RMS랑 다르게 예는 데드라인 자체가 정렬에 영향줌 
         if (running != NULL && currentime >= running->deadline) {
-            // 데드라인 도달했는데 아직 안 끝남 → 미스!
+            // 데드라인 도달했는데 아직 안 끝난건 미스난거 
             running->deadline_missed++;
             printf("[Time %d] P%d DEADLINE MISS!\n", currentime, running->pid);
             
             if (running->repetear > 1) {
-                // 다음 인스턴스 즉시 시작 (RR의 quantum 만료와 유사)
+                
                 running->repetear--;
                 running->arrival_time = currentime;
                 running->deadline = currentime + running->period;
@@ -626,6 +659,7 @@ void EDFsort(Process processarray[], int processnum) {
             } else {
                 // 마지막 인스턴스 → 종료
                 running->completion_time = currentime;
+                running->turnaround_time += running->completion_time - running->arrival_time; //turnaround업데으
                 completedprocessprocess++;
                 running = NULL;
             }
@@ -678,6 +712,7 @@ void EDFsort(Process processarray[], int processnum) {
     }
     print_gantt_chart(records, record_cnt + 1, "EDF");
 }
+//주기 짧으면 우선 , 이건 안바뀜
 void RMSsort(Process processarray[], int processnum) {
     int currentime = 0;
     int completedprocessprocess = 0;
@@ -695,7 +730,7 @@ void RMSsort(Process processarray[], int processnum) {
         // 1. 도착 처리
         for (int i = 0; i < processnum; i++) {
             if (processarray[i].arrival_time == currentime) {
-                enqueue(&ready_queue, &processarray[i]);
+                enqueue(&ready_queue, &processarray[i]);//시간맞게 inqueue
             }
         }
         
@@ -708,25 +743,24 @@ void RMSsort(Process processarray[], int processnum) {
                 i++;
             }
         }
-        
-        // 3. ★ EDF 선택 (선점형!) ★
+        //RMS 
         if (!is_empty(&ready_queue)) {
             Process *highest = check_priority(&ready_queue);
             if (running == NULL) {
                 running = priority_remove(&ready_queue);
             } else if (highest->priority < running->priority) {
-                // 더 급한 작업이 있으면 선점
+                // 더 급한 작업이 있으면 선점 작업이 나중에 들어오는 경우도 있으니까
                 enqueue(&ready_queue, running);
                 running = priority_remove(&ready_queue);
             }
         }
         
-        // 4. waiting_time 증가
+        //waiting_time 증가
         for (int i = 0; i < ready_queue.currenop; i++) {
             ready_queue.data[i]->waiting_time++;
         }
         
-        // 5. Gantt 기록
+        //Gantt 기록
         int current_pid = (running != NULL) ? running->pid : 0;
         if (current_pid != prev_pid) {
             if (prev_pid != -2) {
@@ -738,7 +772,8 @@ void RMSsort(Process processarray[], int processnum) {
             prev_pid = current_pid;
         }
         
-        // 6. ★★★ 데드라인 체크 (하드 RT 핵심!) ★★★
+        // 데드라인 체크는 EDF랑 다르게 스케쥴링은 안들어가고 그냥 평가용/ 루프방지 걍 EDF 복붙함
+        //루프방지- 데드라인 놓친놈이 계속 점유하는거 막을려고
         if (running != NULL && currentime >= running->deadline) {
             // 데드라인 도달했는데 아직 안 끝남 → 미스!
             running->deadline_missed++;
@@ -933,7 +968,7 @@ int main(void) {
 
         switch (choice) {
             case 2:
-                unitedsort(processarray, num_processes, ALGO_FCFS);
+                unitedsort(processarray, num_processes, ALGO_FCFS, "FCFS");
                 evaluatesort(processarray, num_processes, "FCFS");
                 break;
             case 3: {
@@ -941,10 +976,10 @@ int main(void) {
                 printf("1. 비선점형 SJF  |  2. 선점형 SJF (SRTF)\n선택: ");
                 scanf("%d", &sub_choice);
                 if (sub_choice == 1) {
-                    unitedsort(processarray, num_processes, ALGO_SJF);
+                    unitedsort(processarray, num_processes, ALGO_SJF, "SJF (Non-preemptive)");
                     evaluatesort(processarray, num_processes, "SJF (Non-preemptive)");
                 } else {
-                    unitedsort(processarray, num_processes, ALGO_SJF_PREEMPTIVE);
+                    unitedsort(processarray, num_processes, ALGO_SJF_PREEMPTIVE, "SJF (Preemptive)");
                     evaluatesort(processarray, num_processes, "SJF (Preemptive)");
                 }
                 break;
@@ -954,10 +989,10 @@ int main(void) {
                 printf("1. 비선점형 Priority  |  2. 선점형 Priority\n선택: ");
                 scanf("%d", &sub_choice);
                 if (sub_choice == 1) {
-                    unitedsort(processarray, num_processes, ALGO_PRIORITY);
+                    unitedsort(processarray, num_processes, ALGO_PRIORITY, "Priority (Non-preemptive)");
                     evaluatesort(processarray, num_processes, "Priority (Non-preemptive)");
                 } else {
-                    unitedsort(processarray, num_processes, ALGO_PRIORITY_PREEMPTIVE);
+                    unitedsort(processarray, num_processes, ALGO_PRIORITY_PREEMPTIVE, "Priority (Preemptive)");
                     evaluatesort(processarray, num_processes, "Priority (Preemptive)");
                 }
                 break;

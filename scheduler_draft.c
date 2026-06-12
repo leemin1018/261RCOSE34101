@@ -499,6 +499,7 @@ void unitedsort(Process processarray[], int processnum, Algorithm algo, const ch
                 running = NULL;  // CPU 비움
                 //일단 cpu완료처리하고 
             }else if (running->cpu_used == running->io_request_time) {
+                running->io_burst_time = (rand() % 5);//수정 길이 랜ㄷㅁ
                 //IO요청 실행 중인 프로세스가 I/O 모드로 전환되어 잠시 빠진다
                 //실행중이던 작업은 일단 waiting 큐로 빼고 IO 시작 IO중에도 다른 프로세스는 계속 돌아가게 종료후 wait에서 다시 rady로
                 running->io_done_time = currentime + running->io_burst_time; // I/O 완료 시간 계산
@@ -612,6 +613,7 @@ void RRsort(Process processarray[], int processnum, int time_quantum){
                 running = NULL;  // CPU 비움
                 usedtime=0;
             } else if (running->cpu_used == running->io_request_time) {
+                running->io_burst_time = (rand() % 5);//수정 길이 랜ㄷㅁ
                 running->io_done_time = currentime + running->io_burst_time;
                 
                 // [추가 로직] 다음 I/O가 언제 발생할지 새로 랜덤 세팅!
@@ -765,6 +767,7 @@ void EDFsort(Process processarray[], int processnum) {
             }
             // I/O 발생
             else if (running->cpu_used == running->io_request_time) {
+                running->io_burst_time = (rand() % 5);//수정 길이 랜ㄷㅁ
                 running->io_done_time = currentime + running->io_burst_time;
                 if (running->remaining_time > 0) {
                     running->io_request_time = running->cpu_used + (rand() % running->remaining_time) + 1;
@@ -910,6 +913,7 @@ void RMSsort(Process processarray[], int processnum) {
             }
             // I/O 발생
             else if (running->cpu_used == running->io_request_time) {
+                running->io_burst_time = (rand() % 5);//수정 길이 랜ㄷㅁ
                 running->io_done_time = currentime + running->io_burst_time;
                 if (running->remaining_time > 0) {
                     running->io_request_time = running->cpu_used + (rand() % running->remaining_time) + 1;
